@@ -39,16 +39,17 @@ import _compat_pickle
 __all__ = ["PickleError", "PicklingError", "UnpicklingError", "Pickler",
            "Unpickler", "dump", "dumps", "load", "loads"]
 
-try:
-    from _pickle import PickleBuffer
-    __all__.append("PickleBuffer")
-    _HAVE_PICKLE_BUFFER = True
-except ImportError:
-    _HAVE_PICKLE_BUFFER = False
+# try:
+#     from _pickle import PickleBuffer
+#     __all__.append("PickleBuffer")
+#     _HAVE_PICKLE_BUFFER = True
+# except ImportError:
+#     _HAVE_PICKLE_BUFFER = False
 
+_HAVE_PICKLE_BUFFER = False
 
 # Shortcut for use in isinstance testing
-bytes_types = (bytes, bytearray)
+bytes_types = (bytes, bytearray, memoryview)
 
 # These are purely informational; no code uses these.
 format_version = "4.0"                  # File format version we write
@@ -191,6 +192,29 @@ READONLY_BUFFER  = b'\x98'  # make top of stack readonly
 __all__.extend([x for x in dir() if re.match("[A-Z][A-Z0-9_]+$", x)])
 
 
+MIN_MEMORY_MAPPABLE_BYTES = 9
+def read_from_bytes_io(bytesio, n):
+    if n >= MIN_MEMORY_MAPPABLE_BYTES and isinstance(bytesio, io.BytesIO):
+      buffer = bytesio.getbuffer()
+      if isinstance(buffer, memoryview):
+        total = len(buffer)
+        offset = bytesio.tell()
+
+        readable_bytes = min(n, total - offset)
+        next_offset = offset + readable_bytes
+
+        view = memoryview(buffer)[offset:next_offset]
+
+        # solid = bytesio.read(n)
+        # if len(view) != len(solid):
+        #   raise Exception(f'Mismatching: would have read {solid} ({len(solid)}) but read {view} ({len(view)}) when asked for {n} bytes')
+
+        bytesio.seek(next_offset)
+
+        # print(f'VIEW {view} over {n} bytes at offset {offset} (/ total = {total}, had {readable_bytes} readable bytes) from {buffer} (which obj is {buffer.obj} <- {buffer[-offset:0]})')
+        return view
+    return bytesio.read(n)
+
 class _Framer:
 
     _FRAME_SIZE_MIN = 4
@@ -280,7 +304,7 @@ class _Unframer:
 
     def read(self, n):
         if self.current_frame:
-            data = self.current_frame.read(n)
+            data = read_from_bytes_io(self.current_frame, n)
             if not data and n != 0:
                 self.current_frame = None
                 return self.file_read(n)
@@ -1169,12 +1193,15 @@ class _Unpickler:
         """
         self._buffers = iter(buffers) if buffers is not None else None
         self._file_readline = file.readline
-        self._file_read = file.read
+        self._file = file
         self.memo = {}
         self.encoding = encoding
         self.errors = errors
         self.proto = 0
         self.fix_imports = fix_imports
+
+    def _file_read(self, n):
+        return read_from_bytes_io(self._file, n)
 
     def load(self):
         """Read a pickled object representation from the open file.
@@ -1764,22 +1791,24 @@ def _loads(s, /, *, fix_imports=True, encoding="ASCII", errors="strict",
     return _Unpickler(file, fix_imports=fix_imports, buffers=buffers,
                       encoding=encoding, errors=errors).load()
 
-# Use the faster _pickle if possible
-try:
-    from _pickle import (
-        PickleError,
-        PicklingError,
-        UnpicklingError,
-        Pickler,
-        Unpickler,
-        dump,
-        dumps,
-        load,
-        loads
-    )
-except ImportError:
-    Pickler, Unpickler = _Pickler, _Unpickler
-    dump, dumps, load, loads = _dump, _dumps, _load, _loads
+# # Use the faster _pickle if possible
+# try:
+#     from _pickle import (
+#         PickleError,
+#         PicklingError,
+#         UnpicklingError,
+#         Pickler,
+#         Unpickler,
+#         dump,
+#         dumps,
+#         load,
+#         loads
+#     )
+# except ImportError:
+#     Pickler, Unpickler = _Pickler, _Unpickler
+#     dump, dumps, load, loads = _dump, _dumps, _load, _loads
+Pickler, Unpickler = _Pickler, _Unpickler
+dump, dumps, load, loads = _dump, _dumps, _load, _loads
 
 # Doctest
 def _test():
