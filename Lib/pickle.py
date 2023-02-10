@@ -211,7 +211,7 @@ def read_from_bytes_io(bytesio, n):
 
         bytesio.seek(next_offset)
 
-        # print(f'VIEW {view} over {n} bytes at offset {offset} (/ total = {total}, had {readable_bytes} readable bytes) from {buffer} (which obj is {buffer.obj} <- {buffer[-offset:0]})')
+        print(f'VIEW {view} over {n} bytes at offset {offset} (/ total = {total}, had {readable_bytes} readable bytes) from {buffer} (which obj is {buffer.obj} <- {buffer[-offset:0]})')
         return view
     return bytesio.read(n)
 
